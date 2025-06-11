@@ -1,5 +1,7 @@
 flask
+flask_cors
 openai
 python-dotenv
 pytesseract
 Pillow
+gunicorn
