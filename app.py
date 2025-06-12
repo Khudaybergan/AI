@@ -5,18 +5,18 @@ import openai
 import pytesseract
 from PIL import Image
 from io import BytesIO
-import os
+import os, uuid, threading
 
 # === Загрузка переменных из .env ===
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# === Инициализация Flask ===
+# === Flask ===
 app = Flask(__name__)
 CORS(app)
 
-# Хранилище последнего ответа
-last_answer = ""
+# === Хранилище ответов ===
+results = {}  # {task_id: {"status": "processing"/"done", "answer": "..." }}
 
 @app.route('/', methods=['GET'])
 def home():
@@ -24,43 +24,54 @@ def home():
 
 @app.route('/upload', methods=['POST'])
 def upload_image():
-    global last_answer
     try:
-        # Получаем изображение
+        task_id = str(uuid.uuid4())
         image_file = request.files['image']
-        image = Image.open(image_file.stream)
+        image_data = image_file.read()
 
-        # OCR
-        text = pytesseract.image_to_string(image)
-        print("📃 Распознанный текст:\n", text)
+        # Сохраняем задачу
+        results[task_id] = {"status": "processing"}
 
-        # Создаём промпт для AI
-        prompt = (
-           "Hi, this is a test I'm currently taking during my exam session."  
-            "Please help me. The text may contain multiple questions, but I only need the answer"  
-            "to the **last multiple-choice question** (A, B, C, or D)."  
-            "Indicate which question it is (for example: Q3: C), and respond with **only one letter**, without any explanations."  
-            "Here is the task text:""\n\n"
-           f"{text}"
-        )       
+        # Запускаем фоновую обработку
+        threading.Thread(target=process_image_task, args=(task_id, image_data)).start()
 
-        # Отправка в OpenAI
-        response = openai.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        answer = response.choices[0].message.content.strip()
-        print("🤖 Ответ от AI:", answer)
-
-        # Сохраняем ответ для повторного открытия popup
-        last_answer = answer
-
-        return jsonify({"answer": answer})
+        return jsonify({"task_id": task_id})
 
     except Exception as e:
         print("❌ Ошибка:", e)
         return jsonify({"error": str(e)}), 500
 
-@app.route('/last', methods=['GET'])
-def get_last_answer():
-    return jsonify({"answer": last_answer})
+def process_image_task(task_id, image_data):
+    try:
+        image = Image.open(BytesIO(image_data))
+        text = pytesseract.image_to_string(image)
+        print("📃 Распознанный текст:\n", text)
+
+        prompt = (
+            "Hi, I’m currently taking a test and need your help. "
+            "Please look at the task below and provide the correct answer. "
+            "Only reply with one single letter: A, B, C, or D — without any explanation. "
+            "Which question is it (e.g., Q2: B)?\n\n"
+            f"{text}"
+        )
+
+        response = openai.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        answer = response.choices[0].message.content.strip()
+        print(f"🤖 Готово [{task_id}]:", answer)
+
+        results[task_id] = {"status": "done", "answer": answer}
+
+    except Exception as e:
+        print(f"❌ Ошибка в задаче {task_id}:", e)
+        results[task_id] = {"status": "error", "error": str(e)}
+
+@app.route('/result/<task_id>', methods=['GET'])
+def get_result(task_id):
+    if task_id not in results:
+        return jsonify({"status": "not_found"}), 404
+
+    result = results[task_id]
+    return jsonify(result)
