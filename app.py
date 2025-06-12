@@ -78,5 +78,5 @@ def get_result(task_id):
 
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 10000))  # Используй PORT, который задаёт Render
+    port = int(os.environ.get("PORT", 8080))  # Используй PORT, который задаёт Render
     app.run(host='0.0.0.0', port=port)
