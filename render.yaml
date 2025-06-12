@@ -1,7 +1,7 @@
 services:
   - type: web
     name: quizai
-    env: python
+    env: docker
     buildCommand: |
       apt-get update && apt-get install -y tesseract-ocr
       pip install -r requirements.txt
